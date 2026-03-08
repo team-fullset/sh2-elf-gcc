@@ -1,48 +1,33 @@
 #!/bin/bash
 
-###################################################################
-#Script Name	:   build-newlib                                                                                            
-#Description	:   build newlib for the SuperH2 toolchain   
-#Date           :   samedi, 4 avril 2020                                                                          
-#Args           :   Welcome to the next level!                                                                                        
-#Author       	:   Jacques Belosoukinski (kentosama)                                                   
-#Email         	:   kentosama@genku.net                                          
-###################################################################
-
-VERSION="3.3.0"
+VERSION="4.1.0"
 ARCHIVE="newlib-${VERSION}.tar.gz"
-URL="ftp://sourceware.org/pub/newlib/${ARCHIVE}"
-SHA512SUM="2f0c6666487520e1a0af0b6935431f85d2359e27ded0d01d02567d0d1c6479f2f0e6bbc60405e88e46b92c2a18780a01a60fc9281f7e311cfd40b8d5881d629c"
+URL="https://sourceware.org/pub/newlib/${ARCHIVE}"
+SHA512SUM="6a24b64bb8136e4cd9d21b8720a36f87a34397fd952520af66903e183455c5cf19bb0ee4607c12a05d139c6c59382263383cb62c461a839f969d23d3bc4b1d34"
 DIR="newlib-${VERSION}"
 
-# Check if user is root
 if [ ${EUID} == 0 ]; then
     echo "Please don't run this script as root"
-    exit
+    exit 1
 fi
 
-# Create build folder
-mkdir ${BUILD_DIR}/${DIR}
-
-# Move into download folder
+mkdir -p ${BUILD_DIR}/${DIR}
 cd ${DOWNLOAD_DIR}
 
-# Download newlib if is needed
 if ! [ -f "${ARCHIVE}" ]; then
-    wget ${URL}
+    curl -LO ${URL}
 fi
 
-# Extract the newlib archive if is needed
 if ! [ -d "${SRC_DIR}/${DIR}" ]; then
-    if [ $(sha512sum ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
-        echo "SHA512SUM verification of ${ARCHIVE} failed!"
-        exit
-    else
-        tar -zxvf ${ARCHIVE} -C ${SRC_DIR}
+    if [ -n "${SHA512SUM}" ]; then
+        if [ $(shasum -a 512 ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
+            echo "SHA512SUM verification of ${ARCHIVE} failed!"
+            exit 1
+        fi
     fi
+    tar -zxf ${ARCHIVE} -C ${SRC_DIR}
 fi
 
-# Export
 PREFIX=${PROGRAM_PREFIX}
 export CC_FOR_TARGET=${PREFIX}gcc
 export LD_FOR_TARGET=${PREFIX}ld
@@ -50,11 +35,10 @@ export AS_FOR_TARGET=${PREFIX}as
 export AR_FOR_TARGET=${PREFIX}ar
 export RANLIB_FOR_TARGET=${PREFIX}ranlib
 export newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED -D__OPTIMIZE_SIZE__"
+export CFLAGS_FOR_TARGET="-DPREFER_SIZE_OVER_SPEED -D__OPTIMIZE_SIZE__ -Wno-implicit-function-declaration -Wno-int-conversion -Wno-implicit-int -Wno-return-type"
 
-# Move into build dir
 cd ${BUILD_DIR}/${DIR}
 
-# Configure before build
 ${SRC_DIR}/${DIR}/configure --prefix=${INSTALL_DIR} \
                             --build=${BUILD_MACH} \
                             --host=${HOST_MACH} \
@@ -63,13 +47,15 @@ ${SRC_DIR}/${DIR}/configure --prefix=${INSTALL_DIR} \
                             --enable-target-optspac \
                             --enable-libssp \
                             --enable-lto \
-                            --disable-newlib-supplied-syscalls \
+                            --enable-newlib-supplied-syscalls \
                             --disable-nls
 
-# Build and install newlib
-make -j${NUM_PROC} 2<&1 | tee build.log
+make -j${NUM_PROC} 2>&1 | tee build.log
+MAKE_EXIT=${PIPESTATUS[0]}
 
-# Install newlib
-if [ $? -eq 0 ]; then
-    make install
+if [ ${MAKE_EXIT} -ne 0 ]; then
+    echo "Newlib build failed (exit code ${MAKE_EXIT})"
+    exit 1
 fi
+
+make install

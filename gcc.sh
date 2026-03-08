@@ -1,56 +1,38 @@
 #!/bin/bash
 
-###################################################################
-#Script Name	:   build-gcc                                                                                           
-#Description	:   build gcc for the SuperH2 toolchain   
-#Date           :   samedi, 4 avril 2020                                                                          
-#Args           :   Welcome to the next level!                                                                                        
-#Author       	:   Jacques Belosoukinski (kentosama)                                                   
-#Email         	:   kentosama@genku.net                                          
-##################################################################
-
-VERSION="9.3.0"
+VERSION="14.2.0"
 ARCHIVE="gcc-${VERSION}.tar.xz"
 URL="https://gcc.gnu.org/pub/gcc/releases/gcc-${VERSION}/${ARCHIVE}"
-SHA512SUM="4b9e3639eef6e623747a22c37a904b4750c93b6da77cf3958d5047e9b5ebddb7eebe091cc16ca0a227c0ecbd2bf3b984b221130f269a97ee4cc18f9cf6c444de"
+SHA512SUM=""
 DIR="gcc-${VERSION}"
 
-# Check if user is root
 if [ ${EUID} == 0 ]; then
     echo "Please don't run this script as root"
-    exit
+    exit 1
 fi
 
-# Create build folder
 mkdir -p ${BUILD_DIR}/${DIR}
-
 cd ${DOWNLOAD_DIR}
 
-# Download gcc if is needed
 if ! [ -f "${ARCHIVE}" ]; then
-    wget ${URL}
+    curl -LO ${URL}
 fi
 
-# Extract gcc archive if is needed
 if ! [ -d "${SRC_DIR}/${DIR}" ]; then
-    if [ $(sha512sum ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
-        echo "SHA512SUM verification of ${ARCHIVE} failed!"
-        exit
-    else
-        tar xf ${ARCHIVE} -C ${SRC_DIR}
+    if [ -n "${SHA512SUM}" ]; then
+        if [ $(shasum -a 512 ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
+            echo "SHA512SUM verification of ${ARCHIVE} failed!"
+            exit 1
+        fi
     fi
+    tar xf ${ARCHIVE} -C ${SRC_DIR}
 fi
 
 cd ${SRC_DIR}/${DIR}
-
-echo ${PWD}
-
-# Download prerequisites
 ./contrib/download_prerequisites
 
 cd ${BUILD_DIR}/${DIR}
 
-# Configure before build
 ${SRC_DIR}/${DIR}/configure --prefix=${INSTALL_DIR}                        \
                             --build=${BUILD_MACH}                       \
                             --host=${HOST_MACH}                         \
@@ -74,16 +56,25 @@ ${SRC_DIR}/${DIR}/configure --prefix=${INSTALL_DIR}                        \
                             --disable-libssp \
                             --disable-shared \
                             --disable-libgcj \
-                            --disable-libstdcxx \ 
+                            --disable-libstdcxx \
+                            --with-system-zlib
 
-# build and install gcc
-make -j${NUM_PROC}
+make -j${NUM_PROC} all-gcc 2>&1 | tee build.log
+MAKE_EXIT=${PIPESTATUS[0]}
 
-# Install
-if [ $? -eq 0 ]; then
-    make install
-    make -j${NUM_PROC} all-target-libgcc
-    make install-target-libgcc
+if [ ${MAKE_EXIT} -ne 0 ]; then
+    echo "GCC build failed (exit code ${MAKE_EXIT})"
+    exit 1
 fi
 
+make install-gcc
 
+make -j${NUM_PROC} all-target-libgcc 2>&1 | tee -a build.log
+MAKE_EXIT=${PIPESTATUS[0]}
+
+if [ ${MAKE_EXIT} -ne 0 ]; then
+    echo "libgcc build failed (exit code ${MAKE_EXIT})"
+    exit 1
+fi
+
+make install-target-libgcc

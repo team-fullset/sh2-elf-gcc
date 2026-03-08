@@ -1,55 +1,35 @@
 #!/bin/bash
 
-###################################################################
-#Script Name	:   build-binutils                                                                                            
-#Description	:   build binutils for the SuperH2 toolchain   
-#Date           :   samedi, 4 avril 2020                                                                          
-#Args           :   Welcome to the next level!                                                                                        
-#Author       	:   Jacques Belosoukinski (kentosama)                                                   
-#Email         	:   kentosama@genku.net                                          
-###################################################################
-
-VERSION="2.34"
+VERSION="2.45"
 ARCHIVE="binutils-${VERSION}.tar.bz2"
 URL="https://ftp.gnu.org/gnu/binutils/${ARCHIVE}"
-SHA512SUM="f47e7304e102c7bbc97958a08093e27796b9051d1567ce4fbb723d39ef3e29efa325ee14a1bdcc462a925a7f9bbbc9aee28294c6dc23850f371030f3835a8067"
+SHA512SUM=""
 DIR="binutils-${VERSION}"
 
-# Check if user is root
 if [ ${EUID} == 0 ]; then
     echo "Please don't run this script as root"
     exit 1
 fi
 
-
-# Create build folder
 mkdir -p ${BUILD_DIR}/${DIR}
-
 cd ${DOWNLOAD_DIR}
 
-# Download binutils if is needed
 if ! [ -f "${ARCHIVE}" ]; then
-    wget ${URL}
+    curl -LO ${URL}
 fi
 
-# Extract binutils archive if is needed
 if ! [ -d "${SRC_DIR}/${DIR}" ]; then
-    if [ $(sha512sum ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
-        echo "SHA512SUM verification of ${ARCHIVE} failed!"
-        exit
-    else
-        tar jxvf ${ARCHIVE} -C ${SRC_DIR}
+    if [ -n "${SHA512SUM}" ]; then
+        if [ $(shasum -a 512 ${ARCHIVE} | awk '{print $1}') != ${SHA512SUM} ]; then
+            echo "SHA512SUM verification of ${ARCHIVE} failed!"
+            exit 1
+        fi
     fi
+    tar jxf ${ARCHIVE} -C ${SRC_DIR}
 fi
 
 cd ${BUILD_DIR}/${DIR}
 
-# Enable gold for 64bit
-if [ ${ARCH} != "i386" ] && [ ${ARCH} != "i686" ]; then
-    GOLD="--enable-gold"
-fi
-
-# Configure before build
 ${SRC_DIR}/${DIR}/configure     --prefix=${INSTALL_DIR} \
                                 --build=${BUILD_MACH} \
                                 --host=${HOST_MACH} \
@@ -58,16 +38,16 @@ ${SRC_DIR}/${DIR}/configure     --prefix=${INSTALL_DIR} \
                                 --disable-nls \
                                 --enable-libssp \
                                 --enable-lto \
+                                --with-system-zlib \
                                 --program-prefix=${PROGRAM_PREFIX} \
-                                --disable-nls \
-                                --with-multilib-list=m2 \
-                                ${GOD}
+                                --with-multilib-list=m2
 
+make -j${NUM_PROC} 2>&1 | tee build.log
+MAKE_EXIT=${PIPESTATUS[0]}
 
-# build and install binutils
-make -j${NUM_PROC} 2<&1 | tee build.log
-
-# Install binutils
-if [ $? -eq 0 ]; then
-    make install -j${NUM_PROC}
+if [ ${MAKE_EXIT} -ne 0 ]; then
+    echo "Binutils build failed (exit code ${MAKE_EXIT})"
+    exit 1
 fi
+
+make install -j${NUM_PROC}
