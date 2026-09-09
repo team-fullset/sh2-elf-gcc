@@ -69,6 +69,20 @@ fi
 
 make install-gcc
 
+# Generate libgcc's headers serially first. Building all-target-libgcc straight
+# at -j runs libgcc's configure inside the same parallel graph, so a compile can
+# start before libgcc_tm.h exists and the build dies with:
+#   libgcc/unwind-dw2.c:29:10: fatal error: libgcc_tm.h: No such file or directory
+# Splitting the configure out keeps the compiles parallel, which is where the
+# time actually goes.
+make configure-target-libgcc 2>&1 | tee -a build.log
+CONFIGURE_EXIT=${PIPESTATUS[0]}
+
+if [ ${CONFIGURE_EXIT} -ne 0 ]; then
+    echo "libgcc configure failed (exit code ${CONFIGURE_EXIT})"
+    exit 1
+fi
+
 make -j${NUM_PROC} all-target-libgcc 2>&1 | tee -a build.log
 MAKE_EXIT=${PIPESTATUS[0]}
 
